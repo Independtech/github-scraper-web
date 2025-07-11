@@ -13,7 +13,7 @@ HEADERS = {
     "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}"
 }
 
-# Filtervärden
+# === Keywordlistor ===
 CONSULTANT_KEYWORDS = [
     "consultant", "consulting", "konsult", "konsulter", "contractor", "external consultant",
     "technical consultant", "utvecklingskonsult", "systemkonsult", "software consultant"
@@ -22,6 +22,12 @@ FREELANCE_KEYWORDS = [
     "freelancer", "freelance", "freelancing", "self-employed", "egenföretagare",
     "own business", "entrepreneur", "frilans", "frilansare", "independent", "solopreneur",
     "gig worker", "contract work", "open for freelance"
+]
+CONSULTANCY_COMPANIES = [
+    "Netlight", "HiQ", "Knowit", "Cybercom", "Cygni", "Acando", "TIQQE", "Softronic",
+    "Sigma", "Columbus", "Sogeti", "Avega", "Deloitte", "Zington", "Tretton37",
+    "Capgemini", "CGI", "Xlent", "AFRY", "ALTEN", "EVRY", "Consid", "B3",
+    "QGroup", "Devoteam", "Northab", "Centigo", "Combitech", "Ninetech", "AddQ"
 ]
 COMPANY_HINTS = [".com", "AB", "Tech", "dev", "company", "consulting"]
 
@@ -41,12 +47,9 @@ def fetch_profiles(languages, location="Stockholm", max_results=60, mode="all"):
                 "page": page
             }
             response = requests.get(GITHUB_API_URL, headers=HEADERS, params=params)
-
             if response.status_code != 200:
                 break
-
-            data = response.json()
-            items = data.get("items", [])
+            items = response.json().get("items", [])
 
             for user in items:
                 profile = parse_profile(user["url"], languages, mode, location)
@@ -79,19 +82,32 @@ def parse_profile(api_url, languages, mode, required_location):
     metadata_text = " ".join([bio.lower(), company.lower()])
     is_consultant = any(word in metadata_text for word in CONSULTANT_KEYWORDS)
     is_freelancer = any(word in metadata_text for word in FREELANCE_KEYWORDS)
+    is_consulting_company = any(bolag.lower() in company.lower() for bolag in CONSULTANCY_COMPANIES)
+    company_hint = any(hint.lower() in metadata_text for hint in COMPANY_HINTS)
     created_old_enough = created_year <= datetime.now().year - 6
-    company_hint = any(hint in metadata_text for hint in COMPANY_HINTS)
 
+    # === Whitelist-läge ===
     if required_location.lower() not in location.lower():
         return None
 
-    if mode == "for_employment" and is_freelancer and not company_hint:
-        return None
-    if mode == "only_consultants" and not is_consultant:
-        return None
-    if mode != "only_consultants" and mode != "for_employment" and not created_old_enough and not company_hint:
+    if mode == "only_consultants":
+        if is_consultant or is_freelancer or is_consulting_company:
+            return _build_profile(html_url, bio, repos, created_year, top_langs, primary_lang)
         return None
 
+    if mode == "for_employment":
+        if is_freelancer and not company_hint:
+            return None
+        if not created_old_enough and not company_hint:
+            return None
+        return _build_profile(html_url, bio, repos, created_year, top_langs, primary_lang)
+
+    # mode == all
+    if not created_old_enough and not company_hint:
+        return None
+    return _build_profile(html_url, bio, repos, created_year, top_langs, primary_lang)
+
+def _build_profile(html_url, bio, repos, created_year, top_langs, primary_lang):
     return {
         "GitHub-profil": html_url,
         "Bio": bio,
